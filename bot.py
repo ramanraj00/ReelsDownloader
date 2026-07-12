@@ -1,8 +1,7 @@
 import os
-import yt_dlp
-
+import threading
+from flask import Flask
 from dotenv import load_dotenv
-
 from telegram import Update
 from telegram.ext import (
     Application,
@@ -12,89 +11,43 @@ from telegram.ext import (
     filters,
 )
 
-# -----------------------------
-# Load environment variables
-# -----------------------------
 load_dotenv()
 
 TOKEN = os.getenv("BOT_TOKEN")
 
-DOWNLOAD_FOLDER = "downloads"
-os.makedirs(DOWNLOAD_FOLDER, exist_ok=True)
+app = Flask(__name__)
+
+@app.route("/")
+def home():
+    return "Bot is running!"
 
 
-# -----------------------------
-# /start command
-# -----------------------------
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await update.message.reply_text(
-        "👋 Hello!\n\n"
-        "Send me any public Instagram Reel or Post link and I'll download it for you."
+        "👋 Hello!\n\nSend me an Instagram Reel link."
     )
 
 
-# -----------------------------
-# Instagram downloader
-# -----------------------------
 async def instagram(update: Update, context: ContextTypes.DEFAULT_TYPE):
-
-    if not update.message or not update.message.text:
-        return
-
-    url = update.message.text.strip()
-
-    if "instagram.com" not in url:
-        return
-
-    status = await update.message.reply_text("⬇️ Downloading...")
-
-    ydl_opts = {
-        "outtmpl": f"{DOWNLOAD_FOLDER}/%(id)s.%(ext)s",
-        "quiet": True,
-        "noplaylist": True,
-    }
-
-    try:
-
-        with yt_dlp.YoutubeDL(ydl_opts) as ydl:
-
-            info = ydl.extract_info(url, download=True)
-
-            filename = ydl.prepare_filename(info)
-
-        await status.edit_text("📤 Uploading...")
-
-        with open(filename, "rb") as video:
-            await update.message.reply_video(video=video)
-
-        os.remove(filename)
-
-        await status.delete()
-
-    except Exception as e:
-        await status.edit_text(f"❌ Error:\n{e}")
-
-
-# -----------------------------
-# Main
-# -----------------------------
-def main():
-
-    app = Application.builder().token(TOKEN).build()
-
-    app.add_handler(CommandHandler("start", start))
-
-    app.add_handler(
-        MessageHandler(
-            filters.TEXT & ~filters.COMMAND,
-            instagram,
+    if update.message and update.message.text:
+        await update.message.reply_text(
+            "🚧 Downloader coming next..."
         )
+
+
+def run_bot():
+    application = Application.builder().token(TOKEN).build()
+
+    application.add_handler(CommandHandler("start", start))
+    application.add_handler(
+        MessageHandler(filters.TEXT & ~filters.COMMAND, instagram)
     )
 
-    print("🤖 Bot is running...")
-
-    app.run_polling()
+    application.run_polling()
 
 
 if __name__ == "__main__":
-    main()
+    threading.Thread(target=run_bot, daemon=True).start()
+
+    port = int(os.environ.get("PORT", 10000))
+    app.run(host="0.0.0.0", port=port)
