@@ -1,4 +1,5 @@
 import os
+import asyncio
 import threading
 import yt_dlp
 
@@ -51,7 +52,6 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 
 async def instagram(update: Update, context: ContextTypes.DEFAULT_TYPE):
-
     if not update.message or not update.message.text:
         return
 
@@ -60,7 +60,10 @@ async def instagram(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if "instagram.com" not in url:
         return
 
-    status = await update.message.reply_text("⬇️ Downloading...")
+    status = await context.bot.send_message(
+        chat_id=update.effective_chat.id,
+        text="⬇️ Downloading..."
+    )
 
     os.makedirs("downloads", exist_ok=True)
 
@@ -78,15 +81,42 @@ async def instagram(update: Update, context: ContextTypes.DEFAULT_TYPE):
             info = ydl.extract_info(url, download=True)
             filename = ydl.prepare_filename(info)
 
-        await status.edit_text("📤 Uploading...")
+        try:
+            await context.bot.edit_message_text(
+                chat_id=update.effective_chat.id,
+                message_id=status.message_id,
+                text="📤 Uploading..."
+            )
+        except Exception:
+            pass
 
         with open(filename, "rb") as video:
-            await update.message.reply_video(video=video)
+            await context.bot.send_video(
+                chat_id=update.effective_chat.id,
+                video=video,
+                supports_streaming=True,
+            )
 
-        await status.delete()
+        try:
+            await context.bot.delete_message(
+                chat_id=update.effective_chat.id,
+                message_id=status.message_id,
+            )
+        except Exception:
+            pass
 
     except Exception as e:
-        await status.edit_text(f"❌ Download failed.\n\n{e}")
+        try:
+            await context.bot.edit_message_text(
+                chat_id=update.effective_chat.id,
+                message_id=status.message_id,
+                text=f"❌ Download failed.\n\n{e}",
+            )
+        except Exception:
+            await context.bot.send_message(
+                chat_id=update.effective_chat.id,
+                text=f"❌ Download failed.\n\n{e}",
+            )
 
     finally:
         if filename and os.path.exists(filename):
@@ -108,6 +138,8 @@ application.add_handler(
 
 def run_bot():
     print("🤖 Telegram Bot Started")
+    loop = asyncio.new_event_loop()
+    asyncio.set_event_loop(loop)
     application.run_polling(
         stop_signals=None,
         close_loop=False,
