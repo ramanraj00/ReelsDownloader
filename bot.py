@@ -83,14 +83,28 @@ async def instagram(update: Update, context: ContextTypes.DEFAULT_TYPE):
         "quiet": True,
         "noplaylist": True,
         "merge_output_format": "mp4",
+        "writethumbnail": True,
     }
 
     filename = None
+    thumbnail_path = None
 
     try:
         with yt_dlp.YoutubeDL(ydl_opts) as ydl:
             info = ydl.extract_info(url, download=True)
             filename = ydl.prepare_filename(info)
+
+        width = info.get("width")
+        height = info.get("height")
+        duration = info.get("duration")
+
+        # yt-dlp saves the thumbnail next to the video with the same base name
+        base, _ = os.path.splitext(filename)
+        for ext in (".jpg", ".webp", ".png"):
+            candidate = base + ext
+            if os.path.exists(candidate):
+                thumbnail_path = candidate
+                break
 
         try:
             await context.bot.edit_message_text(
@@ -101,14 +115,23 @@ async def instagram(update: Update, context: ContextTypes.DEFAULT_TYPE):
         except Exception:
             pass
 
+        thumb_file = open(thumbnail_path, "rb") if thumbnail_path else None
+
         with open(filename, "rb") as video:
             await context.bot.send_video(
                 chat_id=update.effective_chat.id,
                 video=video,
                 supports_streaming=True,
+                width=width,
+                height=height,
+                duration=duration,
+                thumbnail=thumb_file,
                 read_timeout=60,
                 write_timeout=60,
             )
+
+        if thumb_file:
+            thumb_file.close()
 
         try:
             await context.bot.delete_message(
@@ -134,6 +157,8 @@ async def instagram(update: Update, context: ContextTypes.DEFAULT_TYPE):
     finally:
         if filename and os.path.exists(filename):
             os.remove(filename)
+        if thumbnail_path and os.path.exists(thumbnail_path):
+            os.remove(thumbnail_path)
 
 
 # -------------------------
