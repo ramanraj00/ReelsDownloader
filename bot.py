@@ -14,6 +14,7 @@ from telegram.ext import (
     ContextTypes,
     filters,
 )
+from telegram.request import HTTPXRequest
 
 load_dotenv()
 
@@ -26,7 +27,17 @@ if not BOT_TOKEN:
 # Telegram Application
 # -------------------------
 
-application = Application.builder().token(BOT_TOKEN).build()
+application = (
+    Application.builder()
+    .token(BOT_TOKEN)
+    .request(HTTPXRequest(
+        connect_timeout=30,
+        read_timeout=60,
+        write_timeout=60,
+        pool_timeout=30,
+    ))
+    .build()
+)
 
 # -------------------------
 # Flask (for Render)
@@ -95,6 +106,8 @@ async def instagram(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 chat_id=update.effective_chat.id,
                 video=video,
                 supports_streaming=True,
+                read_timeout=60,
+                write_timeout=60,
             )
 
         try:
