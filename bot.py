@@ -104,17 +104,21 @@ async def instagram(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     ydl_opts = {
         "outtmpl": "downloads/%(id)s.%(ext)s",
-        "quiet": False,
+        "quiet": True,
         "noplaylist": True,
         "format": "bestvideo+bestaudio/best",
         "merge_output_format": "mp4",
         "writethumbnail": True,
         "ffmpeg_location": imageio_ffmpeg.get_ffmpeg_exe(),
-        "socket_timeout": 30,  # Timeout for downloads
+        "socket_timeout": 60,  # Timeout for downloads
         "http_headers": {
             "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36"
         },
     }
+
+    cookies_path = "/etc/secrets/cookies.txt"
+    if os.path.exists(cookies_path):
+        ydl_opts["cookiefile"] = cookies_path
 
     filename = None
     thumbnail_path = None
