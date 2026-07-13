@@ -1,7 +1,9 @@
 import os
 import asyncio
 import threading
+import subprocess
 import yt_dlp
+import imageio_ffmpeg
 
 from flask import Flask
 from dotenv import load_dotenv
@@ -22,6 +24,28 @@ BOT_TOKEN = os.getenv("BOT_TOKEN")
 
 if not BOT_TOKEN:
     raise RuntimeError("BOT_TOKEN not found!")
+
+# Telegram Bot API hard limit is 50MB; leave a safety margin
+MAX_TELEGRAM_SIZE = 49 * 1024 * 1024
+
+
+def compress_video(input_path: str) -> str:
+    """Compress a video with ffmpeg so it fits under Telegram's size limit."""
+    output_path = input_path.rsplit(".", 1)[0] + "_compressed.mp4"
+    ffmpeg_exe = imageio_ffmpeg.get_ffmpeg_exe()
+
+    cmd = [
+        ffmpeg_exe, "-y",
+        "-i", input_path,
+        "-vf", "scale='min(720,iw)':-2",
+        "-c:v", "libx264", "-crf", "28", "-preset", "fast",
+        "-c:a", "aac", "-b:a", "96k",
+        output_path,
+    ]
+    subprocess.run(cmd, check=True, capture_output=True)
+    return output_path
+
+
 
 # -------------------------
 # Telegram Application
@@ -82,8 +106,10 @@ async def instagram(update: Update, context: ContextTypes.DEFAULT_TYPE):
         "outtmpl": "downloads/%(id)s.%(ext)s",
         "quiet": True,
         "noplaylist": True,
+        "format": "bestvideo+bestaudio/best",
         "merge_output_format": "mp4",
         "writethumbnail": True,
+        "ffmpeg_location": imageio_ffmpeg.get_ffmpeg_exe(),
     }
 
     filename = None
@@ -114,6 +140,20 @@ async def instagram(update: Update, context: ContextTypes.DEFAULT_TYPE):
             )
         except Exception:
             pass
+
+        if os.path.getsize(filename) > MAX_TELEGRAM_SIZE:
+            try:
+                await context.bot.edit_message_text(
+                    chat_id=update.effective_chat.id,
+                    message_id=status.message_id,
+                    text="🗜️ Compressing (file too large)..."
+                )
+            except Exception:
+                pass
+
+            compressed_path = compress_video(filename)
+            os.remove(filename)
+            filename = compressed_path
 
         thumb_file = open(thumbnail_path, "rb") if thumbnail_path else None
 
@@ -197,7 +237,7 @@ if __name__ == "__main__":
 
     port = int(os.environ.get("PORT", 10000))
 
-    print(f"🌍 Flask running on port {port}")
+    print(f"Flask running on port {port}")
 
     app.run(
         host="0.0.0.0",
