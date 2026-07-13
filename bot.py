@@ -104,7 +104,7 @@ async def instagram(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     ydl_opts = {
         "outtmpl": "downloads/%(id)s.%(ext)s",
-        "quiet": True,
+        "quiet": False,
         "noplaylist": True,
         "format": "bestvideo+bestaudio/best",
         "merge_output_format": "mp4",
