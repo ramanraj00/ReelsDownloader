@@ -56,8 +56,8 @@ application = (
     .token(BOT_TOKEN)
     .request(HTTPXRequest(
         connect_timeout=30,
-        read_timeout=60,
-        write_timeout=60,
+        read_timeout=120,
+        write_timeout=120,
         pool_timeout=30,
     ))
     .build()
@@ -110,15 +110,26 @@ async def instagram(update: Update, context: ContextTypes.DEFAULT_TYPE):
         "merge_output_format": "mp4",
         "writethumbnail": True,
         "ffmpeg_location": imageio_ffmpeg.get_ffmpeg_exe(),
+        "socket_timeout": 30,  # Timeout for downloads
+        "http_headers": {
+            "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36"
+        },
     }
 
     filename = None
     thumbnail_path = None
 
     try:
-        with yt_dlp.YoutubeDL(ydl_opts) as ydl:
-            info = ydl.extract_info(url, download=True)
-            filename = ydl.prepare_filename(info)
+        # Run download in executor to avoid blocking the event loop
+        loop = asyncio.get_event_loop()
+        
+        def download_video():
+            with yt_dlp.YoutubeDL(ydl_opts) as ydl:
+                info = ydl.extract_info(url, download=True)
+                filename = ydl.prepare_filename(info)
+                return filename, info
+        
+        filename, info = await loop.run_in_executor(None, download_video)
 
         width = info.get("width")
         height = info.get("height")
@@ -151,7 +162,8 @@ async def instagram(update: Update, context: ContextTypes.DEFAULT_TYPE):
             except Exception:
                 pass
 
-            compressed_path = compress_video(filename)
+            # Run compression in executor
+            compressed_path = await loop.run_in_executor(None, compress_video, filename)
             os.remove(filename)
             filename = compressed_path
 
@@ -166,8 +178,9 @@ async def instagram(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 height=height,
                 duration=duration,
                 thumbnail=thumb_file,
-                read_timeout=60,
-                write_timeout=60,
+                read_timeout=120,
+                write_timeout=120,
+                connect_timeout=30,
             )
 
         if thumb_file:
@@ -181,17 +194,35 @@ async def instagram(update: Update, context: ContextTypes.DEFAULT_TYPE):
         except Exception:
             pass
 
-    except Exception as e:
+    except asyncio.TimeoutError:
         try:
             await context.bot.edit_message_text(
                 chat_id=update.effective_chat.id,
                 message_id=status.message_id,
-                text=f"❌ Download failed.\n\n{e}",
+                text="❌ Download failed. Request timed out. Try a shorter video or try again later.",
             )
         except Exception:
             await context.bot.send_message(
                 chat_id=update.effective_chat.id,
-                text=f"❌ Download failed.\n\n{e}",
+                text="❌ Download failed. Request timed out. Try a shorter video or try again later.",
+            )
+
+    except Exception as e:
+        error_msg = str(e)
+        # Truncate long error messages for Telegram
+        if len(error_msg) > 200:
+            error_msg = error_msg[:200] + "..."
+        
+        try:
+            await context.bot.edit_message_text(
+                chat_id=update.effective_chat.id,
+                message_id=status.message_id,
+                text=f"❌ Download failed.\n\n{error_msg}",
+            )
+        except Exception:
+            await context.bot.send_message(
+                chat_id=update.effective_chat.id,
+                text=f"❌ Download failed.\n\n{error_msg}",
             )
 
     finally:
