@@ -2,6 +2,7 @@ import os
 import asyncio
 import threading
 import subprocess
+import shutil
 import yt_dlp
 import imageio_ffmpeg
 
@@ -27,6 +28,11 @@ if not BOT_TOKEN:
 
 # Telegram Bot API hard limit is 50MB; leave a safety margin
 MAX_TELEGRAM_SIZE = 49 * 1024 * 1024
+WRITABLE_COOKIES_PATH = "/tmp/cookies.txt"
+_secret_cookies_path = "/etc/secrets/cookies.txt"
+if os.path.exists(_secret_cookies_path):
+    shutil.copyfile(_secret_cookies_path, WRITABLE_COOKIES_PATH)
+
 
 
 def compress_video(input_path: str) -> str:
@@ -116,9 +122,8 @@ async def instagram(update: Update, context: ContextTypes.DEFAULT_TYPE):
         },
     }
 
-    cookies_path = "/etc/secrets/cookies.txt"
-    if os.path.exists(cookies_path):
-        ydl_opts["cookiefile"] = cookies_path
+    if os.path.exists(WRITABLE_COOKIES_PATH):
+        ydl_opts["cookiefile"] = WRITABLE_COOKIES_PATH
 
     filename = None
     thumbnail_path = None
