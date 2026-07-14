@@ -33,6 +33,11 @@ _secret_cookies_path = "/etc/secrets/cookies.txt"
 if os.path.exists(_secret_cookies_path):
     shutil.copyfile(_secret_cookies_path, WRITABLE_COOKIES_PATH)
 
+if os.path.exists(WRITABLE_COOKIES_PATH):
+    print(f"✅ Cookies loaded: {os.path.getsize(WRITABLE_COOKIES_PATH)} bytes")
+else:
+    print("⚠️ No cookies file found — running anonymous")
+
 
 
 def compress_video(input_path: str) -> str:
