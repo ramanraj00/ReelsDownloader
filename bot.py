@@ -41,13 +41,21 @@ if not BOT_TOKEN:
 MAX_TELEGRAM_SIZE = 49 * 1024 * 1024
 WRITABLE_COOKIES_PATH = "/tmp/cookies.txt"
 _secret_cookies_path = "/etc/secrets/cookies.txt"
+_local_cookies_path = "cookies.txt" # 👈 FIX 1: Added Local path
 
 # External API Configuration (configurable via .env)
 _default_apis = "https://api.cobalt.tools,https://cobalt-api.kwiatekmateusz.com"
 COBALT_APIS = [api.strip() for api in os.getenv("COBALT_APIS", _default_apis).split(",") if api.strip()]
 
-if os.path.exists(_secret_cookies_path):
+# 👈 FIX 1: Proper Cookies Loading Logic
+if os.path.exists(_local_cookies_path):
+    shutil.copyfile(_local_cookies_path, WRITABLE_COOKIES_PATH)
+    logger.info("Loaded LOCAL cookies.txt")
+elif os.path.exists(_secret_cookies_path):
     shutil.copyfile(_secret_cookies_path, WRITABLE_COOKIES_PATH)
+    logger.info("Loaded SECRET cookies.txt")
+else:
+    logger.info("No cookies.txt found. Running completely anonymous.")
 
 # -----------------------------------------------------------------------------
 # Utility Functions
@@ -77,6 +85,7 @@ async def get_video_info(filepath: str) -> dict:
                 "has_video": any(s.get("codec_type") == "video" for s in streams),
                 "width": next((s.get("width") for s in streams if s.get("codec_type") == "video"), None),
                 "height": next((s.get("height") for s in streams if s.get("codec_type") == "video"), None),
+                "vcodec": next((s.get("codec_name") for s in streams if s.get("codec_type") == "video"), None),
             }
         except Exception as e:
             logger.warning("ffprobe parsing failed: %s", e)
@@ -92,11 +101,12 @@ async def get_video_info(filepath: str) -> dict:
         return {
             "has_audio": "Audio:" in stderr_text,
             "has_video": "Video:" in stderr_text,
-            "width": None, "height": None
+            "width": None, "height": None,
+            "vcodec": None
         }
     except Exception as e:
         logger.warning("Fallback probe failed: %s", e)
-        return {"has_audio": None, "has_video": None, "width": None, "height": None}
+        return {"has_audio": None, "has_video": None, "width": None, "height": None, "vcodec": None}
 
 async def optimize_video_for_telegram(input_path: str) -> str:
     output_path = input_path.rsplit(".", 1)[0] + "_optimized.mp4"
@@ -109,7 +119,7 @@ async def optimize_video_for_telegram(input_path: str) -> str:
         ffmpeg_exe, "-y", "-i", input_path,
         "-map", "0:v:0", "-map", "0:a:0?",
         "-c:v", "libx264", "-preset", "fast",
-        "-crf", "26" if is_large else "23",
+        "-crf", "26" if is_large else "24", # 👈 FIX 2: CRF 24 prevents 50MB overflow trap
         "-pix_fmt", "yuv420p",
         "-c:a", "aac", "-b:a", "128k",
         "-movflags", "+faststart",
@@ -224,7 +234,10 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await update.message.reply_text("Hello!\n\nSend me a public Instagram Reel link.")
 
 async def instagram(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    logger.info(f"YAY! Bot got a message: {update.message.text}")  # 👈 YE LINE ADD KARO
+    
     if not update.message or not update.message.text: return
+    # ... baaki code same
 
     url = update.message.text.strip()
     if "instagram.com" not in url: return
@@ -329,6 +342,7 @@ async def instagram(update: Update, context: ContextTypes.DEFAULT_TYPE):
             raise FileNotFoundError("Downloaded file is missing.")
 
         probe = await get_video_info(filename)
+        vcodec = probe.get("vcodec")
         if not width and probe.get("width"): width = probe["width"]
         if not height and probe.get("height"): height = probe["height"]
 
@@ -338,10 +352,20 @@ async def instagram(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 thumbnail_path = base + ext
                 break
 
-        # Only optimize if file exceeds Telegram's size limit
-        if os.path.getsize(filename) > MAX_TELEGRAM_SIZE:
+        file_size = os.path.getsize(filename)
+        needs_optimization = False
+        opt_reason = ""
+        
+        if file_size > MAX_TELEGRAM_SIZE:
+            needs_optimization = True
+            opt_reason = "Compressing large video..."
+        elif vcodec and vcodec.lower() not in ["h264", "avc1"]:
+            needs_optimization = True
+            opt_reason = f"Fixing {vcodec.upper()} format for Telegram compatibility..."
+            
+        if needs_optimization:
             try:
-                await context.bot.edit_message_text(chat_id=update.effective_chat.id, message_id=status.message_id, text="Compressing video...")
+                await context.bot.edit_message_text(chat_id=update.effective_chat.id, message_id=status.message_id, text=opt_reason)
             except Exception as e:
                 logger.warning("Edit msg failed: %s", e)
 
@@ -399,8 +423,6 @@ async def instagram(update: Update, context: ContextTypes.DEFAULT_TYPE):
 application.add_handler(CommandHandler("start", start))
 application.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, instagram))
 
-# NOTE: run_polling() runs in a thread because Render requires Flask + polling
-# to run simultaneously. If migrating to webhooks, move polling to main thread.
 def run_bot():
     logger.info("Telegram Bot Started")
     loop = asyncio.new_event_loop()
